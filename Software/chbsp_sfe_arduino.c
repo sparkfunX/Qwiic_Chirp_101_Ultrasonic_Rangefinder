@@ -22,7 +22,13 @@
 #include "chirp_smartsonic.h"		// header with board-specific defines
 #include "soniclib.h"				// Chirp SonicLib API definitions
 #include "chirp_bsp.h"
-#include "Arduino.h"
+
+#if defined(ARDUINO) && ARDUINO >= 100
+  #include "Arduino.h"
+#else
+  #include "WProgram.h"
+  #include "pins_arduino.h"
+#endif
 
 
 static uint8_t chirp_i2c_addrs[] = CHIRP_I2C_ADDRS;
@@ -190,7 +196,6 @@ void chbsp_group_set_io_dir_in(ch_group_t *grp_ptr) {
 	}
 }
 
-
 /*!
  * \brief Initialize the I/O pins.
  *
@@ -198,6 +203,9 @@ void chbsp_group_set_io_dir_in(ch_group_t *grp_ptr) {
  * 
  * Configure reset and program pins as outputs. Assert reset and program. Configure 
  * sensor INT pin as input.
+ * 
+ * NICK NOTE: I HAVE REMOVED THE INTERRUPT INIT PARTS HERE
+ * 
  */
 void chbsp_group_pin_init(ch_group_t *grp_ptr) {
 	uint8_t dev_num;
@@ -224,35 +232,7 @@ void chbsp_group_pin_init(ch_group_t *grp_ptr) {
 	}
 
 	/* Initialize IO pins */
-	chbsp_group_set_io_dir_in(grp_ptr);  
-
-	/* Enable the peripheral clock for the MAG extension board interrupt pin. */
-	pmc_enable_periph_clk(PIN_EXT_INTERRUPT_ID);
-	
-	/* Configure PIOs as input pins. */
-	for(port_num = 0; port_num < grp_ptr->num_ports; port_num++ ) {
-		pio_configure(PIN_EXT_INTERRUPT_PIO, PIN_EXT_INTERRUPT_TYPE, chirp_pin_io_irq[port_num], 
-				      PIN_EXT_INTERRUPT_ATTR);
-	}
-
-	pio_configure(PIN_EXT_INTERRUPT_PIO, PIN_EXT_INTERRUPT_TYPE, PIN_EXT_MotionINT_MASK, 
-			      PIN_EXT_INTERRUPT_ATTR);		//configure motionINT pin (although not used)
-	
-	/* Initialize PIO interrupt handler, interrupt on rising edge. */
-	pio_handler_set(PIN_EXT_INTERRUPT_PIO, PIN_EXT_INTERRUPT_ID, chirp_pin_io_irq[0],
-						PIN_EXT_INTERRUPT_ATTR, (void (*) (uint32_t, uint32_t))ext_ChirpINT0_handler);
-	pio_handler_set(PIN_EXT_INTERRUPT_PIO, PIN_EXT_INTERRUPT_ID, chirp_pin_io_irq[1],
-						PIN_EXT_INTERRUPT_ATTR, (void (*) (uint32_t, uint32_t))ext_ChirpINT1_handler);
-	pio_handler_set(PIN_EXT_INTERRUPT_PIO, PIN_EXT_INTERRUPT_ID, chirp_pin_io_irq[2],
-						PIN_EXT_INTERRUPT_ATTR, (void (*) (uint32_t, uint32_t))ext_ChirpINT2_handler);
-	pio_handler_set(PIN_EXT_INTERRUPT_PIO, PIN_EXT_INTERRUPT_ID, chirp_pin_io_irq[3],
-						PIN_EXT_INTERRUPT_ATTR, (void (*) (uint32_t, uint32_t))ext_ChirpINT3_handler);		
-								
-	pio_handler_set(PIN_EXT_INTERRUPT_PIO, PIN_EXT_INTERRUPT_ID, PIN_EXT_MotionINT_MASK,
-						PIN_EXT_INTERRUPT_ATTR, (void (*) (uint32_t, uint32_t))ext_MotionINT_handler);
-
-	/* Initialize and enable push button (PIO) interrupt. */
-	pio_handler_set_priority(PIN_EXT_INTERRUPT_PIO, PIN_EXT_INTERRUPT_IRQn, 0);		
+	chbsp_group_set_io_dir_in(grp_ptr);  	
 	
 }
 
@@ -270,7 +250,7 @@ void chbsp_group_io_clear(ch_group_t *grp_ptr) {
 		ch_dev_t *dev_ptr = ch_get_dev_ptr(grp_ptr, dev_num);
 
 		if (ch_sensor_is_connected(dev_ptr)) {
-			ioport_set_pin_level(chirp_pin_io[dev_num], IOPORT_PIN_LEVEL_LOW); 
+			digitalWrite(chirp_pin_io[dev_num], 0); 
 		}
 	}
 }
@@ -289,7 +269,7 @@ void chbsp_group_io_set(ch_group_t *grp_ptr) {
 		ch_dev_t *dev_ptr = ch_get_dev_ptr(grp_ptr, dev_num);
 
 		if (ch_sensor_is_connected(dev_ptr)) {
-			ioport_set_pin_level(chirp_pin_io[dev_num], IOPORT_PIN_LEVEL_HIGH); 
+			digitalWrite(chirp_pin_io[dev_num], 1); 
 		}
 	}
 }
@@ -318,6 +298,8 @@ void chbsp_group_io_interrupt_enable(ch_group_t *grp_ptr) {
  *
  * \param dev_ptr	pointer to the ch_dev_t config structure for a sensor
  *
+ * NICK NOTE: THIS FUNCTION WON'T WORK AS IS
+ * 
  * This function enables the host interrupt associated with the Chirp sensor device's 
  * INT line.
  */
@@ -325,8 +307,8 @@ void chbsp_io_interrupt_enable(ch_dev_t *dev_ptr) {
 	uint8_t dev_num = ch_get_dev_num(dev_ptr);
 
 	if (ch_sensor_is_connected(dev_ptr)) {
-		pio_handler_clear_pending_IRQ(PIN_EXT_INTERRUPT_PIO, chirp_pin_io_irq[dev_num]);
-		pio_enable_interrupt(PIN_EXT_INTERRUPT_PIO, chirp_pin_io_irq[dev_num]);
+		//pio_handler_clear_pending_IRQ(PIN_EXT_INTERRUPT_PIO, chirp_pin_io_irq[dev_num]);
+		//pio_enable_interrupt(PIN_EXT_INTERRUPT_PIO, chirp_pin_io_irq[dev_num]);
 	}
 }
 
@@ -353,13 +335,15 @@ void chbsp_group_io_interrupt_disable(ch_group_t *grp_ptr) {
  *
  * \param dev_ptr 		pointer to the ch_dev_t config structure for a sensor
  *
+ * NICK NOTE: THIS FUNCTION WON'T WORK AS IS
+ * 
  * This function disables the host interrupt associated with the Chirp sensor device's 
  * INT line.
  */
 void chbsp_io_interrupt_disable(ch_dev_t *dev_ptr) {
 
 	if (dev_ptr->sensor_connected) {
-		pio_disable_interrupt(PIN_EXT_INTERRUPT_PIO, chirp_pin_io_irq[dev_ptr->io_index]);
+		//pio_disable_interrupt(PIN_EXT_INTERRUPT_PIO, chirp_pin_io_irq[dev_ptr->io_index]);
 	}
 }
 
@@ -392,7 +376,7 @@ void chbsp_io_callback_set(ch_io_int_callback_t callback_func_ptr) {
  */
 void chbsp_delay_us(uint32_t us) {
 
-	delay_us(us);
+	delayMicroseconds(us);
 }
 
 /*!
@@ -405,10 +389,10 @@ void chbsp_delay_us(uint32_t us) {
  */
 void chbsp_delay_ms(uint32_t ms) {
 
-	delay_us(ms*1000);
+	delay(ms);
 }
 
-/*!
+/*! NICK NOTE: I NEED TO RETURN TO THIS FUNCTION WHEN I UNDERSTAND THE FLOW BETTER
  * \brief Initialize the host's I2C hardware.
  *
  * \return 0 if successful, 1 on error
@@ -417,7 +401,7 @@ void chbsp_delay_ms(uint32_t ms) {
  */
 int chbsp_i2c_init(void) {
 
-	i2c_master_init(); 
+	//i2c_master_init(); 
 	return 0;
 
 }
